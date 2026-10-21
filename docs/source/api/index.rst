@@ -221,7 +221,9 @@ The method performs the complete pipeline:
    backends.
 #. Build connections by analyzing data flow.
 #. Save compiled models to ``{save_path}/{name}/``.
-#. Generate ``{name}.yaml`` with the complete graph description.
+#. Validate models when requested. Publish ``{name}.yaml`` only if validation
+   succeeds (or was explicitly disabled). Failed retries invalidate the previous
+   YAML at this path, since model files may have been overwritten.
 #. Generate ``{name}.png`` if ``visualize=True`` and Python 3.11 or later is
    running.
 #. Log graph statistics.

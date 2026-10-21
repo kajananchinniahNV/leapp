@@ -372,7 +372,7 @@ class TestDryrun(LEAPPFunctionalTestBase):
         leapp.stop()
         results = leapp.compile_graph(visualize=False, validate=True)
 
-        self.assertTrue(results["raw_node"])
+        self.assertIsNone(results["raw_node"])
         self.assertTrue(results["traced_node"])
         self.assertIn("raw_node", annotate.detected_nodes)
         self.assertIn("traced_node", annotate.detected_nodes)
@@ -408,7 +408,7 @@ class TestDryrun(LEAPPFunctionalTestBase):
         results = leapp.compile_graph(visualize=False, validate=True)
 
         self.assertEqual({"raw_node", "traced_node"}, set(results.keys()))
-        self.assertTrue(results["raw_node"])
+        self.assertIsNone(results["raw_node"])
         self.assertTrue(results["traced_node"])
         self.assertFalse(
             os.path.exists(os.path.join(self.TEST_GRAPH_NAME, "raw_node.pt"))
@@ -441,7 +441,7 @@ class TestDryrun(LEAPPFunctionalTestBase):
         leapp.stop()
         results = leapp.compile_graph(visualize=False, validate=True)
 
-        self.assertTrue(results["state_node"])
+        self.assertIsNone(results["state_node"])
         self.assertIn("feedback_flow", annotate.detected_pipeline)
         self.assertGreaterEqual(len(annotate.detected_pipeline["feedback_flow"]), 1)
         self.assertFalse(

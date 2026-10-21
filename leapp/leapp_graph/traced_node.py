@@ -224,6 +224,19 @@ class TracedTensorNode(LeappNode):
             _get_logger().info(
                 f"Adding {len(state_outputs)} state outputs: {list(state_outputs.keys())}"
             )
+            clashes = sorted(
+                {
+                    name
+                    for name in tensors.keys() & state_outputs.keys()
+                    if tensors[name] is not state_outputs[name]
+                }
+                | (state_outputs.keys() & (static_tensors or {}).keys())
+            )
+            if clashes:
+                raise ValueError(
+                    f"Node '{self.name}': state/output names would replace different "
+                    f"declared outputs {clashes}. Rename the output or the state."
+                )
             tensors = {**tensors, **state_outputs}
 
         # Held for the post-pruning alias check below. Static outputs join

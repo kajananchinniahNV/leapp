@@ -15,6 +15,7 @@
 # limitations under the License.
 #
 import functools
+from pathlib import Path
 import unittest
 import torch
 import leapp
@@ -84,6 +85,81 @@ _decorated_annotate = _timing_decorator(_raw_annotate)
 
 class TestUnsupportedFail(LEAPPFunctionalTestBase):
     """Unit tests to see if unsupported io is properly handled"""
+
+    def _capture_validation_pipeline(self, mode="exported"):
+        leapp.start(
+            self.TEST_GRAPH_NAME,
+            non_traced=["head"] if mode == "non_traced" else [],
+        )
+        x = annotate.input_tensors("encoder", {"x": torch.ones(2)})
+        x = annotate.output_tensors(
+            "encoder", {"y": x + 1}, export_with=None if mode == "yaml_only" else "jit"
+        )
+        x = annotate.input_tensors("head", {"x": x})
+        annotate.output_tensors(
+            "head",
+            {"y": x + 1},
+            export_with=None if mode in ("missing", "yaml_only") else "jit",
+        )
+        leapp.stop()
+
+    def test_missing_models_and_intentional_validation_skips(self):
+        for mode, expected in {
+            "exported": True,
+            "missing": False,
+            "non_traced": None,
+            "yaml_only": None,
+            "backend_failure": False,
+        }.items():
+            with self.subTest(mode=mode):
+                self._capture_validation_pipeline(mode)
+                if mode == "backend_failure":
+                    node = annotate.nodes["head"]
+                    node.compile_model = lambda: None
+                    node.save_model = lambda path: None
+                results = leapp.compile_graph(visualize=False, strict=False)
+                self.assertIs(results["head"], expected)
+                self.assertIs(results["encoder"], None if mode == "yaml_only" else True)
+                self.assertEqual(
+                    Path(annotate.config_path).exists(), expected is not False
+                )
+        self._capture_validation_pipeline("missing")
+        with self.assertRaisesRegex(Exception, "validation failed.*head"):
+            leapp.compile_graph(visualize=False)
+        self.assertFalse(Path(annotate.config_path).exists())
+
+        # A None backend can wrap a prebuilt model. It still needs validation,
+        # even when no node in this graph requests a fresh export.
+        for mismatch in (False, True):
+            with self.subTest(prebuilt=True, mismatch=mismatch):
+                leapp.start(self.TEST_GRAPH_NAME)
+                x = annotate.input_tensors("policy", {"x": torch.ones(2)})
+                annotate.output_tensors(
+                    "policy",
+                    {"y": x + (100 if mismatch else 1)},
+                    export_with=None,
+                    backend_params={
+                        "model_path": str(Path(self.TEST_GRAPH_NAME) / "head.pt")
+                    },
+                )
+                leapp.stop()
+                result = leapp.compile_graph(visualize=False, strict=False)
+                self.assertIs(result["policy"], not mismatch)
+                self.assertEqual(Path(annotate.config_path).exists(), not mismatch)
+
+    def test_failed_compile_invalidates_yaml(self):
+        self._capture_validation_pipeline()
+        leapp.compile_graph(visualize=False)
+        self.assertTrue(Path(annotate.config_path).exists())
+        self._capture_validation_pipeline()
+
+        def fail_compile():
+            raise RuntimeError("backend failure")
+
+        annotate.nodes["head"].compile_model = fail_compile
+        with self.assertRaisesRegex(RuntimeError, "backend failure"):
+            leapp.compile_graph(visualize=False)
+        self.assertFalse(Path(annotate.config_path).exists())
 
     def test_input_tensors_bare_tensor_fails(self):
         """Bare tensors must be wrapped in a dict or TensorSemantics."""
@@ -163,10 +239,13 @@ class TestUnsupportedFail(LEAPPFunctionalTestBase):
 
         leapp.stop()
 
+        leapp.compile_graph(visualize=False)
+        self.assertTrue(Path(annotate.config_path).exists())
         annotate.nodes["func"].outputs[0].cached_values[0] += 10.0
         results = leapp.compile_graph(visualize=False, validate=True, strict=False)
 
         self.assertFalse(results["func"])
+        self.assertFalse(Path(annotate.config_path).exists())
 
         log_path = _get_logger().path
         with open(log_path) as f:
@@ -187,11 +266,14 @@ class TestUnsupportedFail(LEAPPFunctionalTestBase):
 
         leapp.stop()
 
+        leapp.compile_graph(visualize=False)
+        self.assertTrue(Path(annotate.config_path).exists())
         annotate.nodes["func"].outputs[0].cached_values[0] += 10.0
 
         with self.assertRaises(Exception) as exc:
             leapp.compile_graph(visualize=False, validate=True, strict=True)
 
+        self.assertFalse(Path(annotate.config_path).exists())
         message = str(exc.exception)
         self.assertIn("Model validation failed", message)
         self.assertIn("inlined as a constant", message)

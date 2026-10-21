@@ -974,6 +974,7 @@ class ExportManager:
             dict: A dictionary mapping node names to validation results:
                 - True: All outputs matched within tolerance
                 - False: At least one output did not match
+                - None: Export intentionally skipped (not numerically validated)
                 - Exception object: If model execution failed
 
         Raises:
@@ -985,7 +986,7 @@ class ExportManager:
             >>> leapp.stop()
             >>> leapp.compile_graph()
             >>> results = annotate.validate_all_models()
-            >>> assert all(results.values()), "Some models failed validation"
+            >>> assert all(value is True for value in results.values()), "Some models failed validation"
         """
 
         if not self.nodes:
@@ -994,6 +995,10 @@ class ExportManager:
 
         results = {}
         error_hints = []
+        any_exported = any(
+            node.exports_model or node.compiled_model is not None
+            for node in self.nodes.values()
+        )
 
         _get_logger().section(f"Validating {len(self.nodes)} models")
 
@@ -1001,6 +1006,14 @@ class ExportManager:
             _get_logger().info(f"Validating {node_name}...")
 
             try:
+                if (
+                    node.compiled_model is None
+                    and not node.exports_model
+                    and (not any_exported or self.is_dry_run(node_name))
+                ):
+                    results[node_name] = None
+                    _get_logger().info(f"{node_name}: export intentionally skipped")
+                    continue
                 passed, error_hint = node.validate_compiled_model(rtol=rtol, atol=atol)
                 results[node_name] = passed
                 if error_hint is not None:
@@ -1025,15 +1038,20 @@ class ExportManager:
         passed = sum(1 for v in results.values() if v is True)
         failed = sum(1 for v in results.values() if v is False)
         errors = sum(1 for v in results.values() if isinstance(v, Exception))
+        skipped = sum(1 for v in results.values() if v is None)
 
         _get_logger().info(f"  Passed: {passed}/{len(results)}")
+        if skipped:
+            _get_logger().info(f"  Skipped: {skipped}/{len(results)}")
         if failed > 0:
             _get_logger().warning(f"  Failed: {failed}/{len(results)}")
         if errors > 0:
             _get_logger().error(f"  Errors: {errors}/{len(results)}")
 
         if strict and (failed > 0 or errors > 0):
-            failed_nodes = [name for name, v in results.items() if v is not True]
+            failed_nodes = [
+                name for name, v in results.items() if v is not True and v is not None
+            ]
             message = f"Model validation failed for {len(failed_nodes)} node(s): {failed_nodes}"
             if error_hints:
                 message += "\n\n" + "\n".join(error_hints)

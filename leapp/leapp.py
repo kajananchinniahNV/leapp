@@ -147,6 +147,9 @@ def compile_graph(
     When ``visualize`` is ``True`` on Python 3.11 or later, LEAPP writes
     a static ``.png`` graph artifact to the graph output
     directory. Earlier Python versions emit a warning and skip visualization.
+
+    Failed validation leaves no graph YAML, including with ``strict=False``.
+    Recompiling invalidates the previous YAML before overwriting model files.
     """
     manager = _MANAGER
 
@@ -159,6 +162,11 @@ def compile_graph(
 
     if verbose is not None:
         _get_logger().set_verbose(verbose)
+
+    # A previous manifest must not advertise models overwritten by a failed retry.
+    manifest = os.path.join(manager.get_save_path(), f"{manager.get_graph_name()}.yaml")
+    if os.path.exists(manifest):
+        os.unlink(manifest)
 
     manager.validate_nodes_ready_for_compile()
 
@@ -202,10 +210,15 @@ def compile_graph(
     _get_logger().info(f"- Internal connections: {internal_connections}")
     _get_logger().info(f"- Total edges: {total_edges}")
 
+    manager.set_detected_graph(models, pipeline)
+    results = True
+    if validate and not manager.is_dry_run():
+        results = manager.validate_all_models(rtol=rtol, atol=atol, strict=strict)
+        if any(value is not True and value is not None for value in results.values()):
+            return results
+
     system_info = get_system_info()
-    with open(
-        os.path.join(manager.get_save_path(), f"{manager.get_graph_name()}.yaml"), "w"
-    ) as f:
+    with open(manifest, "w") as f:
         yaml.dump(models, f, sort_keys=False)
         f.write("\n")
         yaml.dump(pipeline, f)
@@ -220,12 +233,7 @@ def compile_graph(
             manager.get_nodes().values(),
         )
 
-    manager.set_detected_graph(models, pipeline)
-
-    if validate and not manager.is_dry_run():
-        return manager.validate_all_models(rtol=rtol, atol=atol, strict=strict)
-
-    return True
+    return results
 
 
 class AnnotateAPI:

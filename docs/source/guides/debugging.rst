@@ -40,9 +40,15 @@ returns a dict mapping node names to results.
    )
 
 ``strict=True`` raises if any node fails. ``strict=False`` still runs
-validation, but leaves the result dict available. Nodes with no compiled
-model, such as ``non_traced`` or dry-run cases, are skipped and treated
-as successful.
+validation and returns the result dict. Failed validation leaves no graph
+YAML, even with ``strict=False``. Recompiling removes the previous YAML
+before overwriting model files. ``validate=False`` still writes YAML.
+
+In a graph containing exported models, a node without a compiled model
+fails validation unless explicitly listed in ``non_traced``. Graphs that
+export no nodes remain supported for YAML inspection. Intentionally skipped
+nodes return ``None`` and are counted separately from passed nodes.
+Dry runs skip validation entirely.
 
 A mismatch log includes the node and output names, the sample index,
 tolerances, shapes and dtypes, value ranges, and absolute-difference

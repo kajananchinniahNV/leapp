@@ -532,6 +532,36 @@ class TestStateTensors(LEAPPFunctionalTestBase):
 class TestStateTensorErrors(LEAPPFunctionalTestBase):
     """Tests for error handling in state tensor API."""
 
+    def test_state_outputs_cannot_shadow_declared_outputs(self):
+        for kind in ("same", "different", "static"):
+            with self.subTest(kind=kind):
+                leapp.start(self.TEST_GRAPH_NAME, global_patching=False)
+                try:
+                    x = annotate.input_tensors("policy", {"x": torch.ones(2)})
+                    h = annotate.state_tensors("policy", {"h": torch.zeros(2)})
+                    h = h + x
+                    annotate.update_state("policy", {"h": h})
+                    if kind == "same":
+                        annotate.output_tensors("policy", {"h": h}, export_with="jit")
+                    else:
+                        outputs = (
+                            {"h": h * 100} if kind == "different" else {"y": x + 1}
+                        )
+                        static = (
+                            {"h": torch.full((2,), 100.0)} if kind == "static" else None
+                        )
+                        with self.assertRaisesRegex(ValueError, "state.*replace"):
+                            annotate.output_tensors(
+                                "policy",
+                                outputs,
+                                static_outputs=static,
+                                export_with="jit",
+                            )
+                finally:
+                    leapp.stop()
+                if kind == "same":
+                    self.assertIs(leapp.compile_graph(visualize=False)["policy"], True)
+
     def test_state_tensor_without_input_tensors_raises(self):
         """Test that state_tensors raises error if input_tensors wasn't called first."""
         leapp.start(name=self.TEST_GRAPH_NAME)

@@ -504,10 +504,12 @@ class LeappNode:
         self, rtol: float = 1e-3, atol: float = 1e-5
     ) -> tuple[bool, str | None]:
         if self.compiled_model is None:
-            _get_logger().warning(
-                f"Model {self.name} does not have a compiled model. Skipping validation."
+            hint = (
+                f"Model {self.name} has no compiled model. Set export_with on "
+                "output_tensors(), or explicitly exclude the node with non_traced."
             )
-            return True, None
+            _get_logger().error(hint)
+            return False, hint
 
         examples = self._build_validation_examples()
         all_match = True

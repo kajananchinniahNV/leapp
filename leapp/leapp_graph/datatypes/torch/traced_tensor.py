@@ -758,6 +758,20 @@ class TracedTensor(TracedData, torch.Tensor, metaclass=_TracedTensorMeta):
                 return receiver
             return tensor_out
 
+        if getattr(func, "__name__", "") in {
+            "item",
+            "tolist",
+            "__int__",
+            "__float__",
+            "__index__",
+            "__complex__",
+        }:
+            raise NotImplementedError(
+                f"Tensor.{func.__name__}() in node '{traced_tensor.context}' would "
+                "freeze a runtime value as a Python constant. Keep the computation "
+                "in tensor operations."
+            )
+
         # ================== SPECIAL CASES IN HANDLING ==================
         handled, result = cls._handle_scripted_call(
             func,

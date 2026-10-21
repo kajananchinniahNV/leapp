@@ -216,3 +216,13 @@ Disable session patches
 LEAPP patches for the tracing session (for example NumPy and torch
 interop). Use this only to test whether those patches are involved in
 a failure.
+
+
+Python value conversions
+========================
+
+During capture, ``item()``, ``tolist()``, ``int()``, ``float()``, ``complex()``
+and integer index conversion of traced tensors raise ``NotImplementedError``.
+These operations would freeze the captured value instead of computing it
+from runtime inputs. Keep input-dependent computation in tensor operations.
+Conversions of ordinary tensors and tensors from finished nodes are unaffected.

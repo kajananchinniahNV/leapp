@@ -15,6 +15,7 @@
 # limitations under the License.
 #
 import functools
+import operator
 import unittest
 import torch
 import leapp
@@ -84,6 +85,33 @@ _decorated_annotate = _timing_decorator(_raw_annotate)
 
 class TestUnsupportedFail(LEAPPFunctionalTestBase):
     """Unit tests to see if unsupported io is properly handled"""
+
+    def test_capture_rejects_python_value_conversions(self):
+        operations = (
+            torch.Tensor.item,
+            torch.Tensor.tolist,
+            int,
+            float,
+            complex,
+            operator.index,
+        )
+        for operation in operations:
+            with self.subTest(operation=operation.__name__):
+                leapp.start(self.TEST_GRAPH_NAME, global_patching=False)
+                try:
+                    raw = torch.tensor(2)
+                    expected = operation(raw)
+                    x = annotate.input_tensors("node", {"x": raw.clone()})
+                    with self.assertRaisesRegex(NotImplementedError, "Python constant"):
+                        operation(x)
+                    self.assertEqual(operation(raw), expected)
+                    self.assertEqual(x.shape, torch.Size([]))
+                    annotate.output_tensors("node", {"y": x + 1}, export_with="jit")
+                    self.assertEqual(operation(x), expected)
+                finally:
+                    leapp.stop()
+                self.assertEqual(operation(x), expected)
+                self.assertTrue(leapp.compile_graph(visualize=False)["node"])
 
     def test_input_tensors_bare_tensor_fails(self):
         """Bare tensors must be wrapped in a dict or TensorSemantics."""

@@ -2,13 +2,16 @@
 Legacy Semantics API
 ====================
 
-.. note::
+.. warning::
 
    This page describes the legacy alternative to the quantity and axis APIs
-   presented in the preceding guides. These legacy APIs are **fully supported
-   and are not deprecated**.
+   presented in the preceding guides. ``InputKindEnum``, ``OutputKindEnum``,
+   ``element_names``, and ``TemporalAxis`` are **deprecated**. Constructing
+   ``TensorSemantics`` with a legacy kind or ``element_names``, or constructing
+   ``TemporalAxis``, emits a ``FutureWarning`` visible in the terminal by default.
 
-   Updating to the quantity and axis APIs is recommended, but optional.
+   Migrate to quantity helpers or ``Kind`` with ``Axis`` when your consumer
+   supports their YAML representation. No removal version is scheduled.
    Existing annotations retain their behavior and YAML representation, and
    both styles can coexist in the same graph or annotation list. See
    :doc:`usage` to get started with quantity and axis annotations.
@@ -340,12 +343,17 @@ Downstream consumers can find the temporal axis by locating
    sentinel directly. A tensor may contain at most one temporal axis marker.
 
 
-Optional migration
-==================
+Migration
+=========
 
-Updating is recommended, but optional. Before changing annotations:
+Before changing deprecated annotations:
 
 * Confirm that the downstream consumer understands quantity kinds and ``axes``.
+  Legacy ``state/``, ``command/``, and ``target/`` kind strings are not converted
+  automatically.
+* Confirm that the installed LEAPP version exposes ``Kind`` and the new
+  keyword-only fields. Changing package or configuration version numbers does
+  not enable those APIs.
 * Check the tensor's physical meaning, coordinate frames, and component order.
   Changing metadata does not convert values, reorder components, or rotate
   coordinate frames.
@@ -368,11 +376,17 @@ Use the following mappings when updating an annotation:
    * - Incoming ``COMMAND_*`` kind
      - Use the matching quantity with ``is_setpoint=True``. This marks an
        incoming desired value; outputs must not use ``is_setpoint=True``.
-   * - Joint torque kinds
-     - Use ``joint_effort`` or ``Kind.JOINT_EFFORT``.
+   * - Joint position or velocity kinds
+     - Use ``joint_position`` or ``joint_velocity``.
+   * - Joint torque or effort kinds
+     - Use ``joint_effort`` or ``Kind.JOINT_EFFORT`` for ``JOINT_EFFORT``,
+       ``JOINT_TORQUES``, and ``COMMAND_JOINT_TORQUES``.
    * - Body pose, position, orientation, or motion kinds
      - Use the matching ``frame_*`` helper. Check the actual representation
        before relabeling; a rotation tensor is not automatically a quaternion.
+   * - ``BODY_VEL``, ``BODY_ACC``, or ``WRENCH``
+     - Use ``frame_twist``, ``frame_acceleration``, or ``frame_wrench``,
+       respectively.
    * - ``element_names``
      - Use ``axes`` with one entry per tensor dimension. Use ``None`` for
        unspecified dimensions. Do not supply both ``axes`` and ``element_names``.
@@ -383,13 +397,43 @@ Use the following mappings when updating an annotation:
      - Use ``Axis(AxisKind.TIME, period_ms=...)`` in the corresponding
        position in ``axes``. Keep the sample period unchanged.
 
+For example, a legacy output with shape ``[time, joint]``:
+
+.. code-block:: python
+
+   from leapp import TensorSemantics, OutputKindEnum, TemporalAxis
+
+   annotation = TensorSemantics(
+       "actions", actions, kind=OutputKindEnum.JOINT_TORQUES,
+       element_names=[TemporalAxis(period_ms=20), joint_names],
+   )
+
+becomes:
+
+.. code-block:: python
+
+   from leapp import Axis, AxisKind, joint_effort
+
+   annotation = joint_effort(
+       "actions", actions,
+       axes=[Axis(AxisKind.TIME, period_ms=20),
+             Axis(AxisKind.ELEMENT, names=joint_names)],
+   )
+
+The consumer must now read ``kind: joint/effort`` and ``axes`` instead of
+``kind: target/joint/torques``, ``element_names``, and ``temporal_period_ms``.
+
 After updating:
 
 * Inspect the exported YAML: consumers must read the quantity kind and ``axes``
   representation instead of the corresponding legacy fields.
 * Verify that labels still match the tensor's dimensions and value ordering.
+* Compare numerical outputs before and after migration as well as the exported
+  metadata.
 * See :doc:`kind_element_names` for field meanings and YAML examples, and
   :doc:`convenience` for helper-specific argument and component-name checks.
+  See :doc:`spatial` for reference frames, expression frames, global defaults,
+  and the selectors accepted by each helper.
 
 Updating annotations
 ====================
